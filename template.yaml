@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Sample SAM template for Dev Planet demo Serverless REST API
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: dotnet8
+    Architectures:
+      - arm64
+    Environment:
+       Variables:
+          TABLE_NAME: !Ref DynamoDBTable
+
+Parameters:
+    DeployEnv:
+        Type: String
+        Default: dev
+        AllowedValues:
+            - dev
+            - test
+            - prod
+
+Resources:
+  # Define API Gateway (HTTP API V2)  
+  ProductsApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref DeployEnv
+  
+  # Define a Lambda function to create a Product  
+  CreateProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./Products/
+      Handler: Products::Products.Function::CreateProductHandler
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref DynamoDBTable
+      Events:
+        CreateProductEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ProductsApi
+            Path: /product
+            Method: POST
+  
+  # Define a Lambda function to get a Product using barcode
+  GetProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./Products/
+      Handler: Products::Products.Function::GetProductHandler
+      Events:
+        GetProductEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ProductsApi
+            Path: /product/{barcode}
+            Method: GET
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref DynamoDBTable
+
+  # Define a Lambda function to update an existing product
+  UpdateProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./Products/
+      Handler: Products::Products.Function::UpdateProductHandler
+      Policies:
+        - DynamoDBWritePolicy:
+            TableName: !Ref DynamoDBTable      
+      Events:
+        UpdateProductEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ProductsApi
+            Path: /product
+            Method: PUT
+
+  # Define a Lambda function to delete an existing product
+  DeleteProductFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./Products/
+      Handler: Products::Products.Function::DeleteProductHandler
+      Events:
+        DelProductEvent:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref ProductsApi
+            Path: /product/{barcode}
+            Method: DELETE
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DynamoDBTable
+
+  # Define DynamoDB table to save the product. Defining a hash key BarCode
+  DynamoDBTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: Products
+      AttributeDefinitions:
+        - AttributeName: BarCode
+          AttributeType: S   
+      KeySchema:
+        - AttributeName: BarCode
+          KeyType: HASH
+      ProvisionedThroughput: 
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+Outputs:
+  Region:
+    Description: Region
+    Value: !Ref AWS::Region
+  Stack:
+    Description: Stack
+    Value: !Ref AWS::StackName
+  ApiUrl:
+    Description: API endpoint URL for Postman
+    Value: !Sub https://${ProductsApi}.execute-api.${AWS::Region}.amazonaws.com/${DeployEnv}/product
